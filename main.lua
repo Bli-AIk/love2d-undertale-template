@@ -29,26 +29,56 @@ require("Localization.LOCALIZE")
 require("Scripts.Libraries.Overworld.ConfigData")
 
 -- Canvases
-CANVAS = love.graphics.newCanvas(
-    CANVAS_WIDTH,
-    CANVAS_HEIGHT,
-    nil,
-    {
-        format = "stencil",
-        readable = true
-    }
-)
-CANVAS:setFilter("nearest", "nearest")
-INTERMEDIATE_CANVAS = love.graphics.newCanvas(
-    CANVAS_WIDTH,
-    CANVAS_HEIGHT,
-    nil,
-    {
-        format = "stencil",
-        readable = true
-    }
-)
-INTERMEDIATE_CANVAS:setFilter("nearest", "nearest")
+CANVAS = nil
+INTERMEDIATE_CANVAS = nil
+local canvas_w = 0
+local canvas_h = 0
+
+local function updateScreenLayout()
+    screen_w, screen_h = love.graphics.getDimensions()
+    if (FILL_SCREEN) then
+        scale = math.min(screen_w / CANVAS_WIDTH, screen_h / CANVAS_HEIGHT)
+    else
+        scale = 1
+    end
+    draw_x = math.floor((screen_w - CANVAS_WIDTH * scale) * 0.5 + 0.5)
+    draw_y = math.floor((screen_h - CANVAS_HEIGHT * scale) * 0.5 + 0.5)
+end
+
+local function newCanvas(w, h)
+    local canvas = love.graphics.newCanvas(
+        w,
+        h,
+        nil,
+        {
+            format = "stencil",
+            readable = true
+        }
+    )
+    canvas:setFilter("nearest", "nearest")
+    return canvas
+end
+
+local function ensureCanvases()
+    local w = math.max(1, math.floor(screen_w + 0.5))
+    local h = math.max(1, math.floor(screen_h + 0.5))
+
+    if (CANVAS and canvas_w == w and canvas_h == h) then
+        return
+    end
+
+    if CANVAS and CANVAS.release then
+        CANVAS:release()
+    end
+    if INTERMEDIATE_CANVAS and INTERMEDIATE_CANVAS.release then
+        INTERMEDIATE_CANVAS:release()
+    end
+
+    CANVAS = newCanvas(w, h)
+    INTERMEDIATE_CANVAS = newCanvas(w, h)
+    canvas_w = w
+    canvas_h = h
+end
 
 -- Global variables
 global:SetVariable("FPS", 60)
@@ -62,14 +92,8 @@ local Camera = require("Scripts.Libraries.Utils.Camera")
 _CAMERA_ = Camera:new(0, 0, 1, 1, 0)
 
 -- Screen variables
-screen_w, screen_h = love.graphics.getDimensions()
-if (FILL_SCREEN) then
-    scale = math.min(screen_w / CANVAS_WIDTH, screen_h / CANVAS_HEIGHT)
-else
-    scale = 1
-end
-draw_x = math.floor((screen_w - CANVAS_WIDTH * scale) * 0.5 + 0.5)
-draw_y = math.floor((screen_h - CANVAS_HEIGHT * scale) * 0.5 + 0.5)
+updateScreenLayout()
+ensureCanvases()
 
 -- Frame rate control
 local frameTime = 1 / global:GetVariable("FPS")
@@ -85,14 +109,8 @@ function love.load()
     -- If it's mobile player, then fullscreen automatically
     if (love.system.getOS() == "Android" or love.system.getOS() == "iOS") then
         love.window.setFullscreen(true, "desktop")
-        screen_w, screen_h = love.graphics.getDimensions()
-        if (FILL_SCREEN) then
-            scale = math.min(screen_w / CANVAS_WIDTH, screen_h / CANVAS_HEIGHT)
-        else
-            scale = 1
-        end
-        draw_x = math.floor((screen_w - CANVAS_WIDTH * scale) * 0.5 + 0.5)
-        draw_y = math.floor((screen_h - CANVAS_HEIGHT * scale) * 0.5 + 0.5)
+        updateScreenLayout()
+        ensureCanvases()
     end
 
     --[[if (love.system.openURL) then
@@ -158,33 +176,20 @@ end
 
 function love.resize(w, h)
     screen_w, screen_h = w, h
-    if (FILL_SCREEN) then
-        scale = math.min(screen_w / CANVAS_WIDTH, screen_h / CANVAS_HEIGHT)
-        draw_x = math.floor((screen_w - CANVAS_WIDTH * scale) * 0.5 + 0.5)
-        draw_y = math.floor((screen_h - CANVAS_HEIGHT * scale) * 0.5 + 0.5)
-    else
-        scale = 1
-        draw_x = math.floor((screen_w - CANVAS_WIDTH * scale) * 0.5 + 0.5)
-        draw_y = math.floor((screen_h - CANVAS_HEIGHT * scale) * 0.5 + 0.5)
-    end
+    updateScreenLayout()
+    ensureCanvases()
 end
 
 function love.draw()
-    screen_w, screen_h = love.graphics.getDimensions()
-    if (FILL_SCREEN) then
-        scale = math.min(screen_w / CANVAS_WIDTH, screen_h / CANVAS_HEIGHT)
-        draw_x = math.floor((screen_w - CANVAS_WIDTH * scale) * 0.5 + 0.5)
-        draw_y = math.floor((screen_h - CANVAS_HEIGHT * scale) * 0.5 + 0.5)
-    else
-        scale = 1
-        draw_x = math.floor((screen_w - CANVAS_WIDTH * scale) * 0.5 + 0.5)
-        draw_y = math.floor((screen_h - CANVAS_HEIGHT * scale) * 0.5 + 0.5)
-    end
+    updateScreenLayout()
+    ensureCanvases()
 
     love.graphics.setCanvas({CANVAS, stencil = true})
-    love.graphics.clear(true, true, true)
+    love.graphics.clear(0, 0, 0, 1, true, true)
 
     love.graphics.push()
+        love.graphics.translate(draw_x, draw_y)
+        love.graphics.scale(scale, scale)
 
         gui.draw()
 
@@ -211,8 +216,7 @@ function love.draw()
 
     love.graphics.push()
         love.graphics.setCanvas()
-        love.graphics.translate(draw_x, draw_y)
-        love.graphics.scale(scale, scale)
+        love.graphics.clear(0, 0, 0, 1)
         love.graphics.setColor(1, 1, 1)
 
         local shaders = global:GetVariable("ScreenShaders") or {}
@@ -242,10 +246,6 @@ function love.draw()
         else
             love.graphics.draw(CANVAS)
         end
-
-        _CAMERA_:apply()
-        sprites.DrawSmoothPixelScreen()
-        _CAMERA_:reset()
     love.graphics.pop()
 end
 
@@ -263,7 +263,8 @@ function love.keypressed(key)
     if (os_name ~= "Android" and os_name ~= "iOS") then
         if (key == "f4") then
             love.window.setFullscreen(not love.window.getFullscreen(), "desktop")
-            scale = math.min(love.graphics.getWidth() / LOGICAL_WIDTH, love.graphics.getHeight() / LOGICAL_HEIGHT)
+            updateScreenLayout()
+            ensureCanvases()
         end
     end
     if (key == "f2") then
