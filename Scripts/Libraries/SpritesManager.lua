@@ -2,8 +2,93 @@ local sprites = {
     images = {}
 }
 sprites.imageCache = {}
+sprites.imageCacheLinear = {}
+sprites.smoothPixelShader = nil
 
 local rectangulation = require("Scripts.Libraries.PerfectPixel")
+
+local function getImage(path, filter)
+    local cache = filter == "linear" and sprites.imageCacheLinear or sprites.imageCache
+
+    if (not cache[path]) then
+        cache[path] = love.graphics.newImage("Resources/Sprites/" .. path)
+        cache[path]:setFilter(filter, filter)
+    end
+
+    return cache[path]
+end
+
+local function getSmoothPixelShader()
+    if (not sprites.smoothPixelShader) then
+        sprites.smoothPixelShader = love.graphics.newShader("Scripts/Shaders/smooth_pixel")
+    end
+
+    return sprites.smoothPixelShader
+end
+
+local function applyImage(sprite)
+    sprite.image = getImage(sprite.path, sprite.smoothPixel and "linear" or "nearest")
+end
+
+local function shouldDrawSmoothOnScreen(sprite)
+    return sprite.smoothPixel and not sprite.shaders.use and not sprite.dust.use and not sprite.stencils.use
+end
+
+local function useSmoothPixelShader(sprite)
+    local shader = getSmoothPixelShader()
+    shader:send("texture_pixel_size", { 1 / sprite.image:getWidth(), 1 / sprite.image:getHeight() })
+    love.graphics.setShader(shader)
+end
+
+local function drawSmoothOnScreen(sprite)
+    if not (sprite.isactive and sprite.visible) then return end
+    if not sprite.image then return end
+
+    love.graphics.push()
+
+    if sprite.alpha > 1 then sprite.alpha = 1 end
+    if sprite.alpha < 0 then sprite.alpha = 0 end
+
+    sprite.color[4] = sprite.alpha
+    love.graphics.setColor(sprite.color)
+
+    if sprite.quadArea then
+        sprite.width = sprite.quadArea.w
+        sprite.height = sprite.quadArea.h
+    else
+        sprite.width = sprite.image:getWidth()
+        sprite.height = sprite.image:getHeight()
+    end
+
+    local drawX = sprite.x or 0
+    local drawY = sprite.y or 0
+
+    if not sprite.quad then
+        if sprite.width % 2 == 1 then
+            drawX = drawX + 0.5 / (sprite.xscale or 1)
+        end
+        if sprite.height % 2 == 1 then
+            drawY = drawY + 0.5 / (sprite.yscale or 1)
+        end
+    end
+
+    useSmoothPixelShader(sprite)
+
+    if sprite.quad then
+        love.graphics.draw(sprite.image, sprite.quad, drawX, drawY, math.rad(sprite.rotation or 0),
+            sprite.xscale or 1, sprite.yscale or 1, (sprite.xpivot or 0.5) * sprite.width,
+            (sprite.ypivot or 0.5) * sprite.height, sprite.xshear or 0, sprite.yshear or 0)
+    else
+        love.graphics.draw(sprite.image, drawX, drawY, math.rad(sprite.rotation or 0),
+            sprite.xscale or 1, sprite.yscale or 1, (sprite.xpivot or 0.5) * sprite.width,
+            (sprite.ypivot or 0.5) * sprite.height, sprite.xshear or 0, sprite.yshear or 0)
+    end
+
+    love.graphics.setShader()
+    love.graphics.setColor(1, 1, 1, 1)
+
+    love.graphics.pop()
+end
 
 local functions = {
     MoveTo = function(self, x, y)
@@ -31,16 +116,18 @@ local functions = {
         self.yshear = y
     end,
     Set = function(self, path)
-        self.image = love.graphics.newImage("Resources/Sprites/" .. path)
-        self.image:setFilter("nearest", "nearest")
-        self.imagedata = love.image.newImageData("Resources/Sprites/" .. path)
-
-        -- Change path and realName
         self.path = path
         self.realName = self.path:sub(1, #self.path - 4)
+        applyImage(self)
+        self.imagedata = love.image.newImageData("Resources/Sprites/" .. path)
+
         if (self.isBullet) then
             self.collision.area = rectangulation.rectangulate(self.imagedata)
         end
+    end,
+    SetSmoothPixel = function(self, enabled)
+        self.smoothPixel = enabled and true or false
+        applyImage(self)
     end,
     GetPosition = function(self)
         return self.x, self.y
@@ -190,13 +277,8 @@ function sprites.CreateSprite(path, layer)
     sprite.parent = nil
     sprite.realName = sprite.path:sub(1, #sprite.path - 4)
     sprite.isBullet = false
-    if (sprites.imageCache[sprite.path]) then
-        sprite.image = sprites.imageCache[sprite.path]
-    else
-        sprites.imageCache[sprite.path] = love.graphics.newImage("Resources/Sprites/" .. sprite.path)
-        sprites.imageCache[sprite.path]:setFilter("nearest", "nearest")
-        sprite.image = sprites.imageCache[sprite.path]
-    end
+    sprite.smoothPixel = false
+    sprite.image = getImage(sprite.path, "nearest")
     sprite.imagedata = love.image.newImageData("Resources/Sprites/" .. sprite.path)
     sprite.layer = layer
     sprite.dust = {
@@ -244,6 +326,7 @@ function sprites.CreateSprite(path, layer)
     function sprite:Draw()
         if not (sprite.isactive and sprite.visible) then return end
         if not sprite.image then return end
+        if shouldDrawSmoothOnScreen(sprite) then return end
 
         love.graphics.push()
         local finalDrawable = sprite.image
@@ -289,6 +372,10 @@ function sprites.CreateSprite(path, layer)
         local drawKX = sprite.xshear or 0
         local drawKY = sprite.yshear or 0
 
+        if sprite.smoothPixel and not sprite.shaders.use and not sprite.dust.use then
+            useSmoothPixelShader(sprite)
+        end
+
         love.graphics.draw(finalDrawable, drawX, drawY, drawR, drawSX, drawSY, drawOX, drawOY, drawKX, drawKY)
 
         if sprite.dust.use and sprite.dust.shader then
@@ -326,6 +413,8 @@ function sprites.CreateSpriteAtlas(path, x, y, w, h, layer)
 
     function sprite:Draw()
         if (self.isactive) then
+            if shouldDrawSmoothOnScreen(sprite) then return end
+
             love.graphics.push()
 
             if sprite.shaders.use and (#sprite.shaders.sources > 0) then
@@ -357,6 +446,10 @@ function sprites.CreateSpriteAtlas(path, x, y, w, h, layer)
                     sprite.xscale, sprite.yscale, sprite.xpivot * sprite.width, sprite.ypivot * sprite.height,
                     sprite.xshear, sprite.yshear)
             else
+                if sprite.smoothPixel and not sprite.shaders.use then
+                    useSmoothPixelShader(sprite)
+                end
+
                 love.graphics.draw(sprite.image, sprite.quad, sprite.x, sprite.y, math.rad(sprite.rotation),
                     sprite.xscale, sprite.yscale, sprite.xpivot * sprite.width, sprite.ypivot * sprite.height,
                     sprite.xshear, sprite.yshear)
@@ -450,16 +543,42 @@ function sprites.Draw()
     end
 end
 
+function sprites.DrawSmoothPixelScreen()
+    local screenSprites = {}
+
+    for _, sprite in ipairs(sprites.images) do
+        if shouldDrawSmoothOnScreen(sprite) then
+            table.insert(screenSprites, sprite)
+        end
+    end
+
+    table.sort(screenSprites, function(a, b)
+        return a.layer < b.layer
+    end)
+
+    for _, sprite in ipairs(screenSprites) do
+        drawSmoothOnScreen(sprite)
+    end
+end
+
 function sprites.RemoveImage(path)
     for i = #sprites.images, 1, -1
     do
         local sprite = sprites.images[i]
         if (sprite.path == path) then
             sprite:Destroy()
-            table.remove(sprites.images, i)
         end
     end
+
+    if sprites.imageCache[path] and sprites.imageCache[path].release then
+        sprites.imageCache[path]:release()
+    end
     sprites.imageCache[path] = nil
+
+    if sprites.imageCacheLinear[path] and sprites.imageCacheLinear[path].release then
+        sprites.imageCacheLinear[path]:release()
+    end
+    sprites.imageCacheLinear[path] = nil
 end
 
 function sprites.clear()
@@ -500,9 +619,7 @@ function sprites.clear()
                 end
             end
 
-            sprite.image:release()
-            sprite:Destroy()
-
+            sprite.image = nil
             table.remove(sprites.images, i)
         end
     end
@@ -510,6 +627,16 @@ function sprites.clear()
     for path, img in pairs(sprites.imageCache) do
         if img and img.release then img:release() end
         sprites.imageCache[path] = nil
+    end
+
+    for path, img in pairs(sprites.imageCacheLinear) do
+        if img and img.release then img:release() end
+        sprites.imageCacheLinear[path] = nil
+    end
+
+    if sprites.smoothPixelShader and sprites.smoothPixelShader.release then
+        sprites.smoothPixelShader:release()
+        sprites.smoothPixelShader = nil
     end
 end
 

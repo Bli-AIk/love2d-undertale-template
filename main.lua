@@ -242,6 +242,10 @@ function love.draw()
         else
             love.graphics.draw(CANVAS)
         end
+
+        _CAMERA_:apply()
+        sprites.DrawSmoothPixelScreen()
+        _CAMERA_:reset()
     love.graphics.pop()
 end
 

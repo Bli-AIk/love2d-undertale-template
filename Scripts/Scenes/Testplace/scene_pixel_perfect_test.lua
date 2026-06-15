@@ -4,15 +4,25 @@ local SCENE = {}
 
 local SPR_ENEMY_TEST = sprites.CreateSprite("Cutscene/spr_charaphoto_0.png", -1)
 
-local SPR_SPIN = sprites.CreateSprite("bullet.png", -1)
-SPR_SPIN.y = 100
+local SPR_DEFAULT_1X = sprites.CreateSprite("bullet.png", -1)
+SPR_DEFAULT_1X.x = 240
+SPR_DEFAULT_1X.y = 110
 
+local SPR_SMOOTH_1X = sprites.CreateSprite("bullet.png", -1)
+SPR_SMOOTH_1X.x = 400
+SPR_SMOOTH_1X.y = 110
+SPR_SMOOTH_1X:SetSmoothPixel(true)
 
-local SPR_SPIN_2X = sprites.CreateSprite("bullet.png", -1)
-SPR_SPIN_2X.x = 240
-SPR_SPIN_2X.y = 100
-SPR_SPIN_2X:Scale(2, 2)
+local SPR_DEFAULT_2X = sprites.CreateSprite("bullet.png", -1)
+SPR_DEFAULT_2X.x = 240
+SPR_DEFAULT_2X.y = 180
+SPR_DEFAULT_2X:Scale(2, 2)
 
+local SPR_SMOOTH_2X = sprites.CreateSprite("bullet.png", -1)
+SPR_SMOOTH_2X.x = 400
+SPR_SMOOTH_2X.y = 180
+SPR_SMOOTH_2X:Scale(2, 2)
+SPR_SMOOTH_2X:SetSmoothPixel(true)
 
 local beat_t = typers.DrawText("SRY but this image size \nhappens to be odd =)", { 50, 300 }, 1)
 -- This is a fake scene for testing purposes.
@@ -26,8 +36,10 @@ function SCENE.update(dt)
     -- Update any game logic for this scene here.
     -- For example, you might update animations, handle input, etc.
 
-    SPR_SPIN.rotation = SPR_SPIN.rotation + 1
-    SPR_SPIN_2X.rotation = SPR_SPIN.rotation
+    SPR_DEFAULT_1X.rotation = SPR_DEFAULT_1X.rotation + 1
+    SPR_SMOOTH_1X.rotation = SPR_DEFAULT_1X.rotation
+    SPR_DEFAULT_2X.rotation = SPR_DEFAULT_1X.rotation
+    SPR_SMOOTH_2X.rotation = SPR_DEFAULT_1X.rotation
 end
 
 -- This function is called to draw the scene.
